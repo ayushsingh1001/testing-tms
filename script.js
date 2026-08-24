@@ -61,20 +61,40 @@ function populateMonthFilter(){
   let currentSelection = monthFilter.value;
   let monthsSet = new Set();
 
+  // 1. Add any custom months recorded from actual user trips
   trips.forEach(t => {
     if(t.loadingDate && t.loadingDate.length >= 7){
       monthsSet.add(t.loadingDate.substring(0, 7)); // "YYYY-MM"
     }
   });
 
+  // 2. Pre-fill all 12 calendar months for current and past years
+  const currentYear = new Date().getFullYear();
+  [currentYear, currentYear - 1].forEach(yr => {
+    for (let m = 1; m <= 12; m++) {
+      let mm = m < 10 ? '0' + m : '' + m;
+      monthsSet.add(`${yr}-${mm}`);
+    }
+  });
+
   let sortedMonths = Array.from(monthsSet).sort().reverse();
 
   monthFilter.innerHTML = '<option value="all">All Months</option>';
+  
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
   sortedMonths.forEach(m => {
+    let parts = m.split("-");
+    let yr = parts[0];
+    let monthIndex = parseInt(parts[1], 10) - 1;
+    let label = `${monthNames[monthIndex]} ${yr}`;
+
     let opt = document.createElement("option");
     opt.value = m;
-    let d = new Date(m + "-01");
-    opt.textContent = d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    opt.textContent = label;
     monthFilter.appendChild(opt);
   });
 
@@ -489,11 +509,18 @@ function renderMonthlyProfit(){
     return;
   }
 
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
   sortedMonths.forEach(m => {
     let d = monthlyData[m];
     let netProfit = d.freight - d.expense;
-    let dateObj = new Date(m + "-01");
-    let monthLabel = dateObj.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    let parts = m.split("-");
+    let yr = parts[0];
+    let monthIndex = parseInt(parts[1], 10) - 1;
+    let monthLabel = `${monthNames[monthIndex]} ${yr}`;
 
     tbody.innerHTML += `<tr>
       <td class="text-cell"><strong>${monthLabel}</strong></td>
