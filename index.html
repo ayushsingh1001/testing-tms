@@ -240,6 +240,27 @@
 
     <!-- ============ TRIP DATA ============ -->
     <section id="tripData" class="section">
+
+      <!-- TOP PROFIT & EXPENSE METRICS BAR -->
+      <div class="stat-row">
+        <div class="ticket">
+          <div class="eyebrow">Showing Trips</div>
+          <div class="value mono" id="tripDataCount">0</div>
+        </div>
+        <div class="ticket amber">
+          <div class="eyebrow">Total Freight</div>
+          <div class="value mono" id="tripDataFreight">₹0</div>
+        </div>
+        <div class="ticket">
+          <div class="eyebrow">Total Expenses</div>
+          <div class="value mono" id="tripDataExpense">₹0</div>
+        </div>
+        <div class="ticket teal">
+          <div class="eyebrow">Total Profit</div>
+          <div class="value mono" id="tripDataProfit">₹0</div>
+        </div>
+      </div>
+
       <div class="panel">
         <h2>Trip Records</h2>
 
@@ -277,6 +298,7 @@
                 <th data-key="tds">TDS <span class="sort-arrow"></span></th>
                 <th data-key="officeExpense">Office Exp. <span class="sort-arrow"></span></th>
                 <th data-key="totalExpense">Total Exp. <span class="sort-arrow"></span></th>
+                <th data-key="profit">Profit <span class="sort-arrow"></span></th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
