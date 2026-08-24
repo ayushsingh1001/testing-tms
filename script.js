@@ -54,11 +54,43 @@ function populateSelect(id, key){
   if(current && lists[key].includes(current)) select.value = current;
 }
 
+function populateMonthFilter(){
+  let monthFilter = document.getElementById("monthFilter");
+  if(!monthFilter) return;
+
+  let currentSelection = monthFilter.value;
+  let monthsSet = new Set();
+
+  trips.forEach(t => {
+    if(t.loadingDate && t.loadingDate.length >= 7){
+      monthsSet.add(t.loadingDate.substring(0, 7)); // "YYYY-MM"
+    }
+  });
+
+  let sortedMonths = Array.from(monthsSet).sort().reverse();
+
+  monthFilter.innerHTML = '<option value="all">All Months</option>';
+  sortedMonths.forEach(m => {
+    let opt = document.createElement("option");
+    opt.value = m;
+    let d = new Date(m + "-01");
+    opt.textContent = d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+    monthFilter.appendChild(opt);
+  });
+
+  if(sortedMonths.includes(currentSelection)){
+    monthFilter.value = currentSelection;
+  } else {
+    monthFilter.value = "all";
+  }
+}
+
 function populateAllSelects(){
   populateSelect("transporter", "transporter");
   populateSelect("truckNumber", "truckNumber");
   populateSelect("loadingPoint", "loadingPoint");
   populateSelect("unloadingPoint", "unloadingPoint");
+  populateMonthFilter();
 }
 
 function addOption(id){
@@ -164,6 +196,7 @@ tripForm.addEventListener("submit", function(e){
 
   localStorage.setItem("trips", JSON.stringify(trips));
 
+  populateMonthFilter();
   resetForm();
   renderAll();
   showSection("tripData");
@@ -220,6 +253,7 @@ function deleteTrip(index){
   if(!confirm("Delete this trip record? This cannot be undone.")) return;
   trips.splice(index, 1);
   localStorage.setItem("trips", JSON.stringify(trips));
+  populateMonthFilter();
   renderAll();
   showToast("Trip deleted");
 }
@@ -237,6 +271,7 @@ function togglePayment(index){
 function getFilteredTrips(){
   let search = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
   let status = document.getElementById("statusFilter")?.value || "all";
+  let month = document.getElementById("monthFilter")?.value || "all";
 
   return trips
     .map((t, i) => {
@@ -248,6 +283,7 @@ function getFilteredTrips(){
     .filter(t => {
       if(status === "received" && !t.payment) return false;
       if(status === "due" && t.payment) return false;
+      if(month !== "all" && (!t.loadingDate || !t.loadingDate.startsWith(month))) return false;
       if(search){
         let haystack = `${t.transporter} ${t.truck} ${t.loading} ${t.unloading}`.toLowerCase();
         if(!haystack.includes(search)) return false;
@@ -569,7 +605,10 @@ function showSection(section){
     formHeading.textContent = "New Trip Entry";
   }
   if(section === "dashboard") renderDashboard();
-  if(section === "tripData") renderTable();
+  if(section === "tripData") {
+    populateMonthFilter();
+    renderTable();
+  }
 }
 
 /* ============================================================
@@ -577,36 +616,34 @@ function showSection(section){
    ============================================================ */
 
 function downloadExcel(){
-  if(trips.length === 0){
+  let exportData = getFilteredTrips();
+
+  if(exportData.length === 0){
     showToast("No data to export");
     return;
   }
 
-  let rows = trips.map(t => {
-    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
-    let profit = (t.freight || 0) - totalExpense;
-    return {
-      "Loading Date": t.loadingDate,
-      "Unloading Date": t.unloadingDate,
-      "Transporter": t.transporter,
-      "Vehicle": t.truck,
-      "Loading Point": t.loading,
-      "Unloading Point": t.unloading,
-      "Weight Loaded (kg)": t.loaded,
-      "Weight Delivered (kg)": t.delivered,
-      "Shortage (kg)": t.shortage,
-      "Rate/Ton (₹)": t.ratePerTon,
-      "Freight (₹)": t.freight,
-      "Shortage Amount (₹)": t.shortageAmount,
-      "Diesel (₹)": t.diesel,
-      "Driver (₹)": t.driver,
-      "TDS (₹)": t.tds || 0,
-      "Office Exp (₹)": t.officeExpense || 0,
-      "Total Expense (₹)": totalExpense,
-      "Net Profit (₹)": profit,
-      "Status": t.payment ? "Received" : "Due"
-    };
-  });
+  let rows = exportData.map(t => ({
+    "Loading Date": t.loadingDate,
+    "Unloading Date": t.unloadingDate,
+    "Transporter": t.transporter,
+    "Vehicle": t.truck,
+    "Loading Point": t.loading,
+    "Unloading Point": t.unloading,
+    "Weight Loaded (kg)": t.loaded,
+    "Weight Delivered (kg)": t.delivered,
+    "Shortage (kg)": t.shortage,
+    "Rate/Ton (₹)": t.ratePerTon,
+    "Freight (₹)": t.freight,
+    "Shortage Amount (₹)": t.shortageAmount,
+    "Diesel (₹)": t.diesel,
+    "Driver (₹)": t.driver,
+    "TDS (₹)": t.tds || 0,
+    "Office Exp (₹)": t.officeExpense || 0,
+    "Total Expense (₹)": t.totalExpense,
+    "Net Profit (₹)": t.profit,
+    "Status": t.payment ? "Received" : "Due"
+  }));
 
   let ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(() => ({ wch: 16 }));
@@ -626,6 +663,7 @@ function resetAllData(){
   if(!confirm("Delete ALL trip data? This cannot be undone.")) return;
   localStorage.removeItem("trips");
   trips = [];
+  populateMonthFilter();
   renderAll();
   showToast("All trip data cleared");
 }
