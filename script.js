@@ -149,6 +149,7 @@ tripForm.addEventListener("submit", function(e){
   };
 
   trip.totalExpense = trip.diesel + trip.driver + trip.shortageAmount + trip.tds + trip.officeExpense;
+  trip.profit = trip.freight - trip.totalExpense;
 
   let editIndex = editIndexField.value;
 
@@ -238,7 +239,12 @@ function getFilteredTrips(){
   let status = document.getElementById("statusFilter")?.value || "all";
 
   return trips
-    .map((t, i) => ({ ...t, _index: i }))
+    .map((t, i) => {
+      let freight = t.freight || 0;
+      let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
+      let profit = freight - totalExpense;
+      return { ...t, _index: i, freight, totalExpense, profit };
+    })
     .filter(t => {
       if(status === "received" && !t.payment) return false;
       if(status === "due" && t.payment) return false;
@@ -288,15 +294,29 @@ function updateSortArrows(){
 }
 
 /* ============================================================
-   RENDER: MAIN TRIP TABLE
+   RENDER: MAIN TRIP TABLE & TOP SUMMARY BANNER
    ============================================================ */
 
 function renderTable(){
   let filtered = sortTrips(getFilteredTrips());
   tripTableBody.innerHTML = "";
 
+  // Update Trip Data Top Banner
+  let totalFilteredTrips = filtered.length;
+  let totalFilteredFreight = filtered.reduce((s, t) => s + (t.freight || 0), 0);
+  let totalFilteredExpense = filtered.reduce((s, t) => s + (t.totalExpense || 0), 0);
+  let totalFilteredProfit = totalFilteredFreight - totalFilteredExpense;
+
+  document.getElementById("tripDataCount").textContent = totalFilteredTrips;
+  document.getElementById("tripDataFreight").textContent = "₹" + totalFilteredFreight.toLocaleString("en-IN");
+  document.getElementById("tripDataExpense").textContent = "₹" + totalFilteredExpense.toLocaleString("en-IN");
+  
+  let profitBannerEl = document.getElementById("tripDataProfit");
+  profitBannerEl.textContent = "₹" + totalFilteredProfit.toLocaleString("en-IN");
+  profitBannerEl.style.color = totalFilteredProfit >= 0 ? "var(--teal)" : "var(--rust)";
+
   if(filtered.length === 0){
-    tripTableBody.innerHTML = `<tr><td colspan="18">
+    tripTableBody.innerHTML = `<tr><td colspan="19">
       <div class="empty-state">
         <div class="glyph">🗂️</div>
         <div class="title">No matching trips</div>
@@ -322,6 +342,9 @@ function renderTable(){
         <td>₹${(trip.tds || 0).toLocaleString("en-IN")}</td>
         <td>₹${(trip.officeExpense || 0).toLocaleString("en-IN")}</td>
         <td>₹${(trip.totalExpense || 0).toLocaleString("en-IN")}</td>
+        <td style="color:${trip.profit >= 0 ? 'var(--teal)' : 'var(--rust)'}; font-weight:700;">
+          ₹${(trip.profit || 0).toLocaleString("en-IN")}
+        </td>
         <td>
           <span class="status-pill ${trip.payment ? "received" : "due"}"
                 style="cursor:pointer"
@@ -411,13 +434,14 @@ function renderMonthlyProfit(){
 
   trips.forEach(t => {
     if(!t.loadingDate) return;
-    let monthKey = t.loadingDate.substring(0, 7); // "YYYY-MM"
+    let monthKey = t.loadingDate.substring(0, 7);
     if(!monthlyData[monthKey]){
       monthlyData[monthKey] = { count: 0, freight: 0, expense: 0 };
     }
+    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
     monthlyData[monthKey].count += 1;
     monthlyData[monthKey].freight += (t.freight || 0);
-    monthlyData[monthKey].expense += (t.totalExpense || 0);
+    monthlyData[monthKey].expense += totalExpense;
   });
 
   let sortedMonths = Object.keys(monthlyData).sort().reverse();
@@ -450,12 +474,13 @@ function renderRecentTable(){
   let recent = trips.slice(-5).reverse();
   table.innerHTML = recent.length ? "" : `<tr><td colspan="6"><div class="empty-state"><div class="glyph">🚚</div><div class="title">No trips logged yet</div><div class="hint">Add your first trip to see it here.</div></div></td></tr>`;
   recent.forEach(trip => {
+    let totalExpense = trip.totalExpense || ( (trip.diesel || 0) + (trip.driver || 0) + (trip.shortageAmount || 0) + (trip.tds || 0) + (trip.officeExpense || 0) );
     table.innerHTML += `<tr>
       <td>${trip.loadingDate || "—"}</td>
       <td class="text-cell">${trip.truck}</td>
       <td class="text-cell">${trip.loading} → ${trip.unloading}</td>
       <td>₹${(trip.freight || 0).toLocaleString("en-IN")}</td>
-      <td>₹${(trip.totalExpense || 0).toLocaleString("en-IN")}</td>
+      <td>₹${totalExpense.toLocaleString("en-IN")}</td>
       <td><span class="status-pill ${trip.payment ? "received" : "due"}">${trip.payment ? "Received" : "Due"}</span></td>
     </tr>`;
   });
@@ -470,8 +495,9 @@ function renderChart(){
 
   trips.forEach(t => {
     if(!t.loadingDate) return;
+    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
     groupedFreight[t.loadingDate] = (groupedFreight[t.loadingDate] || 0) + (t.freight || 0);
-    groupedProfit[t.loadingDate] = (groupedProfit[t.loadingDate] || 0) + ((t.freight || 0) - (t.totalExpense || 0));
+    groupedProfit[t.loadingDate] = (groupedProfit[t.loadingDate] || 0) + ((t.freight || 0) - totalExpense);
   });
 
   let dates = Object.keys(groupedFreight).sort();
@@ -556,27 +582,31 @@ function downloadExcel(){
     return;
   }
 
-  let rows = trips.map(t => ({
-    "Loading Date": t.loadingDate,
-    "Unloading Date": t.unloadingDate,
-    "Transporter": t.transporter,
-    "Vehicle": t.truck,
-    "Loading Point": t.loading,
-    "Unloading Point": t.unloading,
-    "Weight Loaded (kg)": t.loaded,
-    "Weight Delivered (kg)": t.delivered,
-    "Shortage (kg)": t.shortage,
-    "Rate/Ton (₹)": t.ratePerTon,
-    "Freight (₹)": t.freight,
-    "Shortage Amount (₹)": t.shortageAmount,
-    "Diesel (₹)": t.diesel,
-    "Driver (₹)": t.driver,
-    "TDS (₹)": t.tds || 0,
-    "Office Exp (₹)": t.officeExpense || 0,
-    "Total Expense (₹)": t.totalExpense,
-    "Net Profit (₹)": (t.freight || 0) - (t.totalExpense || 0),
-    "Status": t.payment ? "Received" : "Due"
-  }));
+  let rows = trips.map(t => {
+    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
+    let profit = (t.freight || 0) - totalExpense;
+    return {
+      "Loading Date": t.loadingDate,
+      "Unloading Date": t.unloadingDate,
+      "Transporter": t.transporter,
+      "Vehicle": t.truck,
+      "Loading Point": t.loading,
+      "Unloading Point": t.unloading,
+      "Weight Loaded (kg)": t.loaded,
+      "Weight Delivered (kg)": t.delivered,
+      "Shortage (kg)": t.shortage,
+      "Rate/Ton (₹)": t.ratePerTon,
+      "Freight (₹)": t.freight,
+      "Shortage Amount (₹)": t.shortageAmount,
+      "Diesel (₹)": t.diesel,
+      "Driver (₹)": t.driver,
+      "TDS (₹)": t.tds || 0,
+      "Office Exp (₹)": t.officeExpense || 0,
+      "Total Expense (₹)": totalExpense,
+      "Net Profit (₹)": profit,
+      "Status": t.payment ? "Received" : "Due"
+    };
+  });
 
   let ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(() => ({ wch: 16 }));
