@@ -36,17 +36,12 @@ const cancelEditBtn = document.getElementById("cancelEditBtn");
 const formHeading = document.getElementById("formHeading");
 
 /* ============================================================
-   CLOUD DATA SYNC (FETCH FROM GOOGLE SHEETS)
+   CLOUD SYNC
    ============================================================ */
 async function loadTripsFromCloud(){
-  if(!SCRIPT_URL){
-    showToast("Please add your Web App URL to script.js");
-    return;
-  }
-
   showToast("Syncing with Google Sheets...");
   try {
-    const res = await fetch(SCRIPT_URL);
+    const res = await fetch(`${SCRIPT_URL}?t=${new Date().getTime()}`);
     const rawData = await res.json();
     
     trips = rawData.map(t => {
@@ -89,17 +84,17 @@ async function loadTripsFromCloud(){
   }
 }
 
-async function sendCloudRequest(payload){
-  if(!SCRIPT_URL) return;
+async function sendCloudAction(action, dataObj = {}){
   try {
-    await fetch(SCRIPT_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
+    let url = `${SCRIPT_URL}?action=${action}&t=${new Date().getTime()}`;
+    if(action === "create" || action === "update"){
+      url += `&data=${encodeURIComponent(JSON.stringify(dataObj))}`;
+    } else if(action === "delete"){
+      url += `&id=${encodeURIComponent(dataObj.id)}`;
+    }
+    fetch(url, { mode: "no-cors" });
   } catch (err) {
-    console.error("Sync error:", err);
+    console.error("Cloud action error:", err);
   }
 }
 
@@ -234,9 +229,9 @@ weightDelivered.addEventListener("input", calculateFreight);
 ratePerTon.addEventListener("input", calculateFreight);
 
 /* ============================================================
-   ADD / UPDATE TRIP (CLOUD SYNC)
+   ADD / UPDATE TRIP
    ============================================================ */
-tripForm.addEventListener("submit", async function(e){
+tripForm.addEventListener("submit", function(e){
   e.preventDefault();
 
   let trip = {
@@ -274,12 +269,12 @@ tripForm.addEventListener("submit", async function(e){
     trip.id = trips[editIndex].id;
     trip.payment = trips[editIndex].payment;
     trips[editIndex] = trip;
-    sendCloudRequest({ action: "update", trip: trip });
+    sendCloudAction("update", trip);
     showToast("Trip updated & saved to Sheets");
   } else {
     trip.id = "TRP-" + Date.now();
     trips.push(trip);
-    sendCloudRequest({ action: "create", trip: trip });
+    sendCloudAction("create", trip);
     showToast("Trip added & saved to Sheets");
   }
 
@@ -340,7 +335,7 @@ function deleteTrip(index){
   if(!confirm("Delete this trip record? This will delete it from Google Sheets.")) return;
   let targetId = trips[index].id;
   trips.splice(index, 1);
-  sendCloudRequest({ action: "delete", id: targetId });
+  sendCloudAction("delete", { id: targetId });
   populateMonthFilter();
   renderAll();
   showToast("Trip deleted from Sheets");
@@ -348,7 +343,7 @@ function deleteTrip(index){
 
 function togglePayment(index){
   trips[index].payment = !trips[index].payment;
-  sendCloudRequest({ action: "update", trip: trips[index] });
+  sendCloudAction("update", trips[index]);
   renderAll();
 }
 
@@ -738,7 +733,7 @@ function downloadExcel(){
 function resetAllData(){
   if(!confirm("Delete ALL trip data from Google Sheets? This cannot be undone.")) return;
   trips = [];
-  sendCloudRequest({ action: "reset" });
+  sendCloudAction("reset");
   populateMonthFilter();
   renderAll();
   showToast("All trip data cleared from Sheets");
