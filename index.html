@@ -269,11 +269,19 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input type="text" id="searchInput" placeholder="Search vehicle, transporter, route..." oninput="renderTable()">
           </div>
+          
+          <!-- Month Filter -->
+          <select id="monthFilter" onchange="renderTable()">
+            <option value="all">All Months</option>
+          </select>
+
+          <!-- Status Filter -->
           <select id="statusFilter" onchange="renderTable()">
             <option value="all">All Status</option>
             <option value="received">Received</option>
             <option value="due">Due</option>
           </select>
+
           <button class="btn btn-ghost btn-sm" onclick="downloadExcel()">Export Excel</button>
           <button class="btn btn-danger btn-sm" onclick="resetAllData()">Reset All</button>
         </div>
