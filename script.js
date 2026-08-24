@@ -1,14 +1,17 @@
 /* ============================================================
+   GOOGLE SHEETS API CONFIG
+   ============================================================ */
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzLKyzZ8U9ogwmh7DhLm8hAyhj-3JqP3sk8oOo9GrxGiGVrk2QxjOAsLOOYIEbJlYVVzg/exec";
+
+/* ============================================================
    STATE
    ============================================================ */
-
-let trips = JSON.parse(localStorage.getItem("trips")) || [];
-
+let trips = [];
 let lists = JSON.parse(localStorage.getItem("lists")) || {
-  transporter: ["Andal Logistics", "EFC Logistics"],
+  transporter: ["Cracker", "RJ Logistics", "OM Sai Transport"],
   truckNumber: ["1982", "8218"],
-  loadingPoint: ["Sanikpur", "RP Shaw"],
-  unloadingPoint: ["Chiliyama", "Sinni"]
+  loadingPoint: ["Fe Grade", "KN Ram", "Keonjhar"],
+  unloadingPoint: ["bokaro", "Kandra", "Rajgang"]
 };
 
 let sortState = { key: "loadingDate", dir: "desc" };
@@ -17,7 +20,6 @@ let freightChart = null;
 /* ============================================================
    DOM REFS
    ============================================================ */
-
 const tripForm = document.getElementById("tripForm");
 const tripTableBody = document.querySelector("#tripTable tbody");
 
@@ -34,15 +36,83 @@ const cancelEditBtn = document.getElementById("cancelEditBtn");
 const formHeading = document.getElementById("formHeading");
 
 /* ============================================================
+   CLOUD DATA SYNC (FETCH FROM GOOGLE SHEETS)
+   ============================================================ */
+async function loadTripsFromCloud(){
+  if(!SCRIPT_URL){
+    showToast("Please add your Web App URL to script.js");
+    return;
+  }
+
+  showToast("Syncing with Google Sheets...");
+  try {
+    const res = await fetch(SCRIPT_URL);
+    const rawData = await res.json();
+    
+    trips = rawData.map(t => {
+      let loaded = parseFloat(t.loaded) || 0;
+      let delivered = parseFloat(t.delivered) || 0;
+      let shortage = parseFloat(t.shortage) || 0;
+      let ratePerTon = parseFloat(t.ratePerTon) || 0;
+      let freight = parseFloat(t.freight) || 0;
+      let shortageRate = parseFloat(t.shortageRate) || 0;
+      let shortageAmount = parseFloat(t.shortageAmount) || 0;
+      let diesel = parseFloat(t.diesel) || 0;
+      let driver = parseFloat(t.driver) || 0;
+      let tds = parseFloat(t.tds) || 0;
+      let officeExpense = parseFloat(t.officeExpense) || 0;
+      let totalExpense = diesel + driver + shortageAmount + tds + officeExpense;
+      let profit = freight - totalExpense;
+      let payment = String(t.payment).toLowerCase() === "true";
+
+      if(t.transporter && !lists.transporter.includes(t.transporter)) lists.transporter.push(t.transporter);
+      if(t.truck && !lists.truckNumber.includes(String(t.truck))) lists.truckNumber.push(String(t.truck));
+      if(t.loading && !lists.loadingPoint.includes(t.loading)) lists.loadingPoint.push(t.loading);
+      if(t.unloading && !lists.unloadingPoint.includes(t.unloading)) lists.unloadingPoint.push(t.unloading);
+
+      return {
+        ...t,
+        loaded, delivered, shortage, ratePerTon, freight,
+        shortageRate, shortageAmount, diesel, driver, tds, officeExpense,
+        totalExpense, profit, payment
+      };
+    });
+
+    saveLists();
+    populateAllSelects();
+    populateMonthFilter();
+    renderAll();
+    showToast("Data synced live!");
+  } catch (err) {
+    console.error(err);
+    showToast("Failed to load cloud data");
+  }
+}
+
+async function sendCloudRequest(payload){
+  if(!SCRIPT_URL) return;
+  try {
+    await fetch(SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    console.error("Sync error:", err);
+  }
+}
+
+/* ============================================================
    SELECT LIST MANAGEMENT
    ============================================================ */
-
 function saveLists(){
   localStorage.setItem("lists", JSON.stringify(lists));
 }
 
 function populateSelect(id, key){
   let select = document.getElementById(id);
+  if(!select) return;
   let current = select.value;
   select.innerHTML = "";
   lists[key].forEach(val => {
@@ -61,14 +131,12 @@ function populateMonthFilter(){
   let currentSelection = monthFilter.value;
   let monthsSet = new Set();
 
-  // 1. Add any custom months recorded from actual user trips
   trips.forEach(t => {
-    if(t.loadingDate && t.loadingDate.length >= 7){
-      monthsSet.add(t.loadingDate.substring(0, 7)); // "YYYY-MM"
+    if(t.loadingDate && String(t.loadingDate).length >= 7){
+      monthsSet.add(String(t.loadingDate).substring(0, 7));
     }
   });
 
-  // 2. Pre-fill all 12 calendar months for current and past years
   const currentYear = new Date().getFullYear();
   [currentYear, currentYear - 1].forEach(yr => {
     for (let m = 1; m <= 12; m++) {
@@ -78,7 +146,6 @@ function populateMonthFilter(){
   });
 
   let sortedMonths = Array.from(monthsSet).sort().reverse();
-
   monthFilter.innerHTML = '<option value="all">All Months</option>';
   
   const monthNames = [
@@ -139,7 +206,6 @@ function addOption(id){
 /* ============================================================
    LIVE CALCULATIONS
    ============================================================ */
-
 function calculateShortage(){
   let loaded = parseFloat(weightLoaded.value) || 0;
   let delivered = parseFloat(weightDelivered.value) || 0;
@@ -168,10 +234,9 @@ weightDelivered.addEventListener("input", calculateFreight);
 ratePerTon.addEventListener("input", calculateFreight);
 
 /* ============================================================
-   ADD / UPDATE TRIP
+   ADD / UPDATE TRIP (CLOUD SYNC)
    ============================================================ */
-
-tripForm.addEventListener("submit", function(e){
+tripForm.addEventListener("submit", async function(e){
   e.preventDefault();
 
   let trip = {
@@ -206,15 +271,17 @@ tripForm.addEventListener("submit", function(e){
   let editIndex = editIndexField.value;
 
   if(editIndex !== ""){
+    trip.id = trips[editIndex].id;
     trip.payment = trips[editIndex].payment;
     trips[editIndex] = trip;
-    showToast("Trip updated");
+    sendCloudRequest({ action: "update", trip: trip });
+    showToast("Trip updated & saved to Sheets");
   } else {
+    trip.id = "TRP-" + Date.now();
     trips.push(trip);
-    showToast("Trip added");
+    sendCloudRequest({ action: "create", trip: trip });
+    showToast("Trip added & saved to Sheets");
   }
-
-  localStorage.setItem("trips", JSON.stringify(trips));
 
   populateMonthFilter();
   resetForm();
@@ -270,40 +337,35 @@ function cancelEdit(){
 }
 
 function deleteTrip(index){
-  if(!confirm("Delete this trip record? This cannot be undone.")) return;
+  if(!confirm("Delete this trip record? This will delete it from Google Sheets.")) return;
+  let targetId = trips[index].id;
   trips.splice(index, 1);
-  localStorage.setItem("trips", JSON.stringify(trips));
+  sendCloudRequest({ action: "delete", id: targetId });
   populateMonthFilter();
   renderAll();
-  showToast("Trip deleted");
+  showToast("Trip deleted from Sheets");
 }
 
 function togglePayment(index){
   trips[index].payment = !trips[index].payment;
-  localStorage.setItem("trips", JSON.stringify(trips));
+  sendCloudRequest({ action: "update", trip: trips[index] });
   renderAll();
 }
 
 /* ============================================================
    FILTER / SORT HELPERS
    ============================================================ */
-
 function getFilteredTrips(){
   let search = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
   let status = document.getElementById("statusFilter")?.value || "all";
   let month = document.getElementById("monthFilter")?.value || "all";
 
   return trips
-    .map((t, i) => {
-      let freight = t.freight || 0;
-      let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
-      let profit = freight - totalExpense;
-      return { ...t, _index: i, freight, totalExpense, profit };
-    })
+    .map((t, i) => ({ ...t, _index: i }))
     .filter(t => {
       if(status === "received" && !t.payment) return false;
       if(status === "due" && t.payment) return false;
-      if(month !== "all" && (!t.loadingDate || !t.loadingDate.startsWith(month))) return false;
+      if(month !== "all" && (!t.loadingDate || !String(t.loadingDate).startsWith(month))) return false;
       if(search){
         let haystack = `${t.transporter} ${t.truck} ${t.loading} ${t.unloading}`.toLowerCase();
         if(!haystack.includes(search)) return false;
@@ -352,12 +414,10 @@ function updateSortArrows(){
 /* ============================================================
    RENDER: MAIN TRIP TABLE & TOP SUMMARY BANNER
    ============================================================ */
-
 function renderTable(){
   let filtered = sortTrips(getFilteredTrips());
   tripTableBody.innerHTML = "";
 
-  // Update Trip Data Top Banner
   let totalFilteredTrips = filtered.length;
   let totalFilteredFreight = filtered.reduce((s, t) => s + (t.freight || 0), 0);
   let totalFilteredExpense = filtered.reduce((s, t) => s + (t.totalExpense || 0), 0);
@@ -430,9 +490,8 @@ function renderTable(){
 }
 
 /* ============================================================
-   RENDER: RECEIVED / DUE
+   RENDER: RECEIVED / DUE / DASHBOARD
    ============================================================ */
-
 function renderReceivedTable(){
   let table = document.querySelector("#receivedTable tbody");
   let rows = trips.filter(t => t.payment);
@@ -461,10 +520,6 @@ function renderDueTable(){
   });
 }
 
-/* ============================================================
-   RENDER: DASHBOARD & MONTHLY PROFIT
-   ============================================================ */
-
 function renderDashboard(){
   let totalTrips = trips.length;
   let totalFreight = trips.reduce((s, t) => s + (t.freight || 0), 0);
@@ -490,14 +545,13 @@ function renderMonthlyProfit(){
 
   trips.forEach(t => {
     if(!t.loadingDate) return;
-    let monthKey = t.loadingDate.substring(0, 7);
+    let monthKey = String(t.loadingDate).substring(0, 7);
     if(!monthlyData[monthKey]){
       monthlyData[monthKey] = { count: 0, freight: 0, expense: 0 };
     }
-    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
     monthlyData[monthKey].count += 1;
     monthlyData[monthKey].freight += (t.freight || 0);
-    monthlyData[monthKey].expense += totalExpense;
+    monthlyData[monthKey].expense += (t.totalExpense || 0);
   });
 
   let sortedMonths = Object.keys(monthlyData).sort().reverse();
@@ -537,13 +591,12 @@ function renderRecentTable(){
   let recent = trips.slice(-5).reverse();
   table.innerHTML = recent.length ? "" : `<tr><td colspan="6"><div class="empty-state"><div class="glyph">🚚</div><div class="title">No trips logged yet</div><div class="hint">Add your first trip to see it here.</div></div></td></tr>`;
   recent.forEach(trip => {
-    let totalExpense = trip.totalExpense || ( (trip.diesel || 0) + (trip.driver || 0) + (trip.shortageAmount || 0) + (trip.tds || 0) + (trip.officeExpense || 0) );
     table.innerHTML += `<tr>
       <td>${trip.loadingDate || "—"}</td>
       <td class="text-cell">${trip.truck}</td>
       <td class="text-cell">${trip.loading} → ${trip.unloading}</td>
       <td>₹${(trip.freight || 0).toLocaleString("en-IN")}</td>
-      <td>₹${totalExpense.toLocaleString("en-IN")}</td>
+      <td>₹${(trip.totalExpense || 0).toLocaleString("en-IN")}</td>
       <td><span class="status-pill ${trip.payment ? "received" : "due"}">${trip.payment ? "Received" : "Due"}</span></td>
     </tr>`;
   });
@@ -558,9 +611,8 @@ function renderChart(){
 
   trips.forEach(t => {
     if(!t.loadingDate) return;
-    let totalExpense = t.totalExpense || ( (t.diesel || 0) + (t.driver || 0) + (t.shortageAmount || 0) + (t.tds || 0) + (t.officeExpense || 0) );
     groupedFreight[t.loadingDate] = (groupedFreight[t.loadingDate] || 0) + (t.freight || 0);
-    groupedProfit[t.loadingDate] = (groupedProfit[t.loadingDate] || 0) + ((t.freight || 0) - totalExpense);
+    groupedProfit[t.loadingDate] = (groupedProfit[t.loadingDate] || 0) + ((t.freight || 0) - (t.totalExpense || 0));
   });
 
   let dates = Object.keys(groupedFreight).sort();
@@ -609,7 +661,6 @@ function renderChart(){
 /* ============================================================
    NAVIGATION
    ============================================================ */
-
 const sectionTitles = {
   dashboard: "Dashboard",
   addTrip: "Add Trip",
@@ -641,7 +692,6 @@ function showSection(section){
 /* ============================================================
    EXCEL EXPORT
    ============================================================ */
-
 function downloadExcel(){
   let exportData = getFilteredTrips();
 
@@ -685,20 +735,18 @@ function downloadExcel(){
 /* ============================================================
    RESET
    ============================================================ */
-
 function resetAllData(){
-  if(!confirm("Delete ALL trip data? This cannot be undone.")) return;
-  localStorage.removeItem("trips");
+  if(!confirm("Delete ALL trip data from Google Sheets? This cannot be undone.")) return;
   trips = [];
+  sendCloudRequest({ action: "reset" });
   populateMonthFilter();
   renderAll();
-  showToast("All trip data cleared");
+  showToast("All trip data cleared from Sheets");
 }
 
 /* ============================================================
    TOAST
    ============================================================ */
-
 let toastTimer = null;
 function showToast(msg){
   let toast = document.getElementById("toast");
@@ -711,7 +759,6 @@ function showToast(msg){
 /* ============================================================
    INIT
    ============================================================ */
-
 function renderAll(){
   renderTable();
   renderDashboard();
@@ -726,3 +773,4 @@ function setToday(){
 populateAllSelects();
 setToday();
 renderAll();
+loadTripsFromCloud();
